@@ -25,8 +25,9 @@ def emp(c, code="EMP0001", **kw):
 def test_root_points_to_docs_and_health(c):
     r = c.get("/")
     assert r.status_code == 200
-    assert r.json()["docs_url"] == "/docs"
-    assert r.json()["status_url"] == "/health"
+    assert "text/html" in r.headers["content-type"]
+    assert "Employee Attendance Console" in r.text
+    assert "/docs" in r.text and "/health" in r.text
 
 def test_employee_crud_and_validation(c):
     r = emp(c); assert r.status_code == 201

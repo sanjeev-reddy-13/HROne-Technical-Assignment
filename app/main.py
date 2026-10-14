@@ -29,7 +29,7 @@ from typing import Annotated, Any, Literal, Optional
 from bson import json_util
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field, StrictInt, StrictStr, field_validator, model_validator
 from pymongo import ASCENDING, DESCENDING, MongoClient, ReturnDocument
 from pymongo.errors import DuplicateKeyError, PyMongoError
@@ -376,15 +376,742 @@ async def mongo_error_handler(_, exc: PyMongoError):
 # --------------------------------------------------------------------------- #
 # 7a. System + employees
 # --------------------------------------------------------------------------- #
-@app.get("/")
-def root():
-    return {
-        "name": app.title,
-        "version": app.version,
-        "status_url": "/health",
-        "docs_url": "/docs",
-        "openapi_url": "/openapi.json",
+FRONTEND_HTML = r"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Employee Attendance Console</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --ink: #17212b;
+      --muted: #647284;
+      --line: #d9e0e7;
+      --accent: #0f766e;
+      --accent-strong: #0b5f59;
+      --warn: #b45309;
+      --bad: #b42318;
+      --good: #157347;
+      --chip: #edf7f5;
+      --shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
     }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, input, select, textarea { font: inherit; }
+    button {
+      border: 0;
+      border-radius: 6px;
+      background: var(--accent);
+      color: white;
+      min-height: 36px;
+      padding: 0 12px;
+      cursor: pointer;
+      font-weight: 650;
+    }
+    button:hover { background: var(--accent-strong); }
+    button.secondary {
+      background: #eef2f6;
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
+    button.secondary:hover { background: #e4eaf0; }
+    button.danger { background: var(--bad); }
+    a { color: var(--accent-strong); text-decoration: none; }
+    header {
+      min-height: 76px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 24px;
+      background: #ffffff;
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+    .brand { display: flex; gap: 12px; align-items: center; min-width: 260px; }
+    .mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: var(--accent);
+      color: white;
+      font-weight: 800;
+    }
+    h1 { font-size: 18px; margin: 0; letter-spacing: 0; }
+    .subtle { color: var(--muted); font-size: 12px; }
+    .statusbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+    .pill {
+      display: inline-flex;
+      gap: 7px;
+      align-items: center;
+      min-height: 30px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: white;
+      padding: 0 10px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--warn); }
+    .dot.ok { background: var(--good); }
+    main { max-width: 1440px; margin: 0 auto; padding: 18px 20px 40px; }
+    .tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding: 4px 0 16px;
+    }
+    .tab {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .tab.active {
+      background: var(--panel);
+      color: var(--ink);
+      border-color: var(--line);
+      box-shadow: var(--shadow);
+    }
+    .view { display: none; }
+    .view.active { display: block; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 14px;
+      align-items: start;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .span-3 { grid-column: span 3; }
+    .span-4 { grid-column: span 4; }
+    .span-5 { grid-column: span 5; }
+    .span-6 { grid-column: span 6; }
+    .span-7 { grid-column: span 7; }
+    .span-8 { grid-column: span 8; }
+    .span-12 { grid-column: span 12; }
+    .panel-head {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+    }
+    h2 { font-size: 15px; margin: 0; letter-spacing: 0; }
+    .panel-body { padding: 16px; }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 650; }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      min-height: 36px;
+      padding: 7px 9px;
+      background: white;
+      color: var(--ink);
+    }
+    textarea { min-height: 80px; resize: vertical; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+    .table-wrap { overflow: auto; max-height: 560px; }
+    table { width: 100%; border-collapse: collapse; min-width: 720px; }
+    th, td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      white-space: nowrap;
+    }
+    th { background: #f8fafc; color: var(--muted); font-size: 12px; position: sticky; top: 0; z-index: 1; }
+    tr:hover td { background: #fbfcfd; }
+    .metric-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfd;
+      min-height: 82px;
+    }
+    .metric b { display: block; font-size: 24px; margin-top: 4px; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      border-radius: 999px;
+      padding: 0 8px;
+      background: var(--chip);
+      color: var(--accent-strong);
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .badge.absent { background: #fff1f0; color: var(--bad); }
+    .badge.leave { background: #fff7ed; color: var(--warn); }
+    pre {
+      margin: 0;
+      background: #101820;
+      color: #eaf2f8;
+      border-radius: 8px;
+      padding: 12px;
+      overflow: auto;
+      max-height: 420px;
+      white-space: pre-wrap;
+    }
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      max-width: 460px;
+      background: #101820;
+      color: white;
+      border-radius: 8px;
+      padding: 12px 14px;
+      box-shadow: var(--shadow);
+      display: none;
+      z-index: 10;
+    }
+    .toast.show { display: block; }
+    canvas {
+      width: 100%;
+      height: 260px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+    }
+    @media (max-width: 980px) {
+      header { align-items: flex-start; flex-direction: column; gap: 12px; }
+      .statusbar { justify-content: flex-start; }
+      .span-3, .span-4, .span-5, .span-6, .span-7, .span-8 { grid-column: span 12; }
+      .metric-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 620px) {
+      main { padding: 14px 12px 32px; }
+      .form-grid { grid-template-columns: 1fr; }
+      .metric-row { grid-template-columns: 1fr; }
+      header { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="mark">HR</div>
+      <div>
+        <h1>Employee Attendance Console</h1>
+        <div class="subtle">FastAPI + MongoDB, IST attendance rules</div>
+      </div>
+    </div>
+    <div class="statusbar">
+      <span class="pill"><span id="healthDot" class="dot"></span><span id="healthText">Checking MongoDB</span></span>
+      <span class="pill">API <a href="/docs" target="_blank" rel="noreferrer">Docs</a></span>
+      <span class="pill">OpenAPI <a href="/openapi.json" target="_blank" rel="noreferrer">JSON</a></span>
+    </div>
+  </header>
+  <main>
+    <nav class="tabs" aria-label="Sections">
+      <button class="tab active" data-tab="dashboard">Dashboard</button>
+      <button class="tab" data-tab="employees">Employees</button>
+      <button class="tab" data-tab="punch">Punch Desk</button>
+      <button class="tab" data-tab="attendance">Attendance</button>
+      <button class="tab" data-tab="regularize">Regularize</button>
+      <button class="tab" data-tab="analytics">Analytics</button>
+      <button class="tab" data-tab="explain">Explain</button>
+    </nav>
+
+    <section id="dashboard" class="view active">
+      <div class="metric-row">
+        <div class="metric"><span class="subtle">Employees</span><b id="mEmployees">-</b></div>
+        <div class="metric"><span class="subtle">Attendance Records</span><b id="mAttendance">-</b></div>
+        <div class="metric"><span class="subtle">Open Punches</span><b id="mOpen">-</b></div>
+        <div class="metric"><span class="subtle">Late Records</span><b id="mLate">-</b></div>
+      </div>
+      <div class="grid">
+        <div class="panel span-7">
+          <div class="panel-head"><h2>Recent Attendance</h2><button class="secondary" id="refreshDashboard">Refresh</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Date</th><th>Employee</th><th>Status</th><th>In</th><th>Out</th><th>Late</th><th>Hours</th></tr></thead><tbody id="recentRows"></tbody></table></div>
+        </div>
+        <div class="panel span-5">
+          <div class="panel-head"><h2>Quick Analytics</h2></div>
+          <div class="panel-body">
+            <div class="form-grid">
+              <label>Month<input id="dashMonth" type="month"></label>
+              <label>Department<input id="dashDepartment" placeholder="Engineering"></label>
+            </div>
+            <div class="actions"><button id="loadDashSummary">Load Summary</button></div>
+            <pre id="dashOutput">{}</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="employees" class="view">
+      <div class="grid">
+        <div class="panel span-5">
+          <div class="panel-head"><h2>Create Employee</h2></div>
+          <div class="panel-body">
+            <div class="form-grid">
+              <label>Employee Code<input id="empCode" placeholder="EMP0007"></label>
+              <label>Name<input id="empName" placeholder="Priya Menon"></label>
+              <label>Email<input id="empEmail" placeholder="priya@example.com"></label>
+              <label>Department<input id="empDept" placeholder="Engineering"></label>
+              <label>Shift Start<input id="empStart" value="09:30" placeholder="09:30"></label>
+              <label>Shift End<input id="empEnd" value="18:30" placeholder="18:30"></label>
+              <label>Joined On<input id="empJoined" type="date"></label>
+            </div>
+            <div class="actions"><button id="createEmployee">Create</button><button class="secondary" id="clearEmployee">Clear</button></div>
+          </div>
+        </div>
+        <div class="panel span-7">
+          <div class="panel-head">
+            <h2>Employees</h2>
+            <div class="actions" style="margin:0">
+              <input id="empFilterDept" placeholder="Department filter" style="width:180px">
+              <button class="secondary" id="loadEmployees">Load</button>
+            </div>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>Email</th><th>Department</th><th>Shift</th><th>Joined</th></tr></thead><tbody id="employeeRows"></tbody></table></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="punch" class="view">
+      <div class="grid">
+        <div class="panel span-6">
+          <div class="panel-head"><h2>Punch In</h2></div>
+          <div class="panel-body">
+            <div class="form-grid">
+              <label>Employee Code<input id="pinCode" placeholder="EMP0001"></label>
+              <label>Status<select id="pinStatus"><option>PRESENT</option><option>WFH</option><option>ON_DUTY</option></select></label>
+              <label>Punched At<input id="pinAt" type="datetime-local"></label>
+            </div>
+            <div class="actions"><button id="punchIn">Punch In</button><button class="secondary" data-now="pinAt">Use Current Time</button></div>
+          </div>
+        </div>
+        <div class="panel span-6">
+          <div class="panel-head"><h2>Punch Out</h2></div>
+          <div class="panel-body">
+            <div class="form-grid">
+              <label>Employee Code<input id="poutCode" placeholder="EMP0001"></label>
+              <label>Punched At<input id="poutAt" type="datetime-local"></label>
+            </div>
+            <div class="actions"><button id="punchOut">Punch Out</button><button class="secondary" data-now="poutAt">Use Current Time</button></div>
+          </div>
+        </div>
+        <div class="panel span-12">
+          <div class="panel-head"><h2>Last Punch Result</h2></div>
+          <div class="panel-body"><pre id="punchResult">{}</pre></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="attendance" class="view">
+      <div class="panel">
+        <div class="panel-head"><h2>Attendance Records</h2></div>
+        <div class="panel-body">
+          <div class="form-grid">
+            <label>Employee Code<input id="attCode"></label>
+            <label>Status<select id="attStatus"><option value="">Any</option><option>PRESENT</option><option>WFH</option><option>ON_DUTY</option><option>ABSENT</option><option>LEAVE</option></select></label>
+            <label>Date From<input id="attFrom" type="date"></label>
+            <label>Date To<input id="attTo" type="date"></label>
+            <label>Page<input id="attPage" type="number" min="1" value="1"></label>
+            <label>Page Size<input id="attPageSize" type="number" min="1" max="100" value="20"></label>
+          </div>
+          <div class="actions"><button id="loadAttendance">Load</button><button class="secondary" id="nextAttendance">Next Page</button></div>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>Date</th><th>Employee</th><th>Status</th><th>In</th><th>Out</th><th>Hours</th><th>Late</th><th>OT</th><th>Half</th><th>History</th><th></th></tr></thead><tbody id="attendanceRows"></tbody></table></div>
+      </div>
+    </section>
+
+    <section id="regularize" class="view">
+      <div class="grid">
+        <div class="panel span-5">
+          <div class="panel-head"><h2>Regularize Record</h2></div>
+          <div class="panel-body">
+            <div class="form-grid">
+              <label>Employee Code<input id="regCode" placeholder="EMP0001"></label>
+              <label>Attendance Date<input id="regDate" type="date"></label>
+              <label>Status<select id="regStatus"><option value="">Unchanged</option><option>PRESENT</option><option>WFH</option><option>ON_DUTY</option><option>ABSENT</option><option>LEAVE</option></select></label>
+              <label>Punch In<input id="regIn" type="datetime-local"></label>
+              <label>Punch Out<input id="regOut" type="datetime-local"></label>
+              <label>Regularized By<input id="regBy" value="hr.admin"></label>
+            </div>
+            <label style="margin-top:12px">Reason<textarea id="regReason">biometric correction</textarea></label>
+            <div class="actions"><button id="regularizeBtn">Apply Correction</button><button class="secondary" id="loadRegRecord">Load Current Record</button></div>
+          </div>
+        </div>
+        <div class="panel span-7">
+          <div class="panel-head"><h2>Regularization Result</h2></div>
+          <div class="panel-body"><pre id="regResult">{}</pre></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="analytics" class="view">
+      <div class="grid">
+        <div class="panel span-4">
+          <div class="panel-head"><h2>Employee Monthly</h2></div>
+          <div class="panel-body">
+            <label>Employee Code<input id="amCode" placeholder="EMP0001"></label>
+            <label style="margin-top:10px">Month<input id="amMonth" type="month"></label>
+            <div class="actions"><button id="loadMonthly">Load</button></div>
+          </div>
+        </div>
+        <div class="panel span-4">
+          <div class="panel-head"><h2>Department Summary</h2></div>
+          <div class="panel-body">
+            <label>Month<input id="sumMonth" type="month"></label>
+            <label style="margin-top:10px">Department<input id="sumDept" placeholder="optional"></label>
+            <div class="actions"><button id="loadSummary">Load</button></div>
+          </div>
+        </div>
+        <div class="panel span-4">
+          <div class="panel-head"><h2>Late Leaderboard</h2></div>
+          <div class="panel-body">
+            <div class="form-grid">
+              <label>Month<input id="leadMonth" type="month"></label>
+              <label>Limit<input id="leadLimit" type="number" min="1" max="50" value="10"></label>
+            </div>
+            <label style="margin-top:10px">Department<input id="leadDept" placeholder="optional"></label>
+            <div class="actions"><button id="loadLeaderboard">Load</button></div>
+          </div>
+        </div>
+        <div class="panel span-5">
+          <div class="panel-head"><h2>Department Trend</h2></div>
+          <div class="panel-body">
+            <div class="form-grid">
+              <label>Department<input id="trendDept" placeholder="Engineering"></label>
+              <label>From<input id="trendFrom" type="date"></label>
+              <label>To<input id="trendTo" type="date"></label>
+            </div>
+            <div class="actions"><button id="loadTrend">Load Trend</button></div>
+          </div>
+        </div>
+        <div class="panel span-7">
+          <div class="panel-head"><h2>Trend Chart</h2></div>
+          <div class="panel-body"><canvas id="trendCanvas" width="900" height="300"></canvas></div>
+        </div>
+        <div class="panel span-12">
+          <div class="panel-head"><h2>Analytics Output</h2></div>
+          <div class="panel-body"><pre id="analyticsOutput">{}</pre></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="explain" class="view">
+      <div class="grid">
+        <div class="panel span-4">
+          <div class="panel-head"><h2>Explain Query</h2></div>
+          <div class="panel-body">
+            <label>Endpoint<select id="exEndpoint"><option>attendance_list</option><option>employee_monthly</option><option>department_summary</option><option>late_leaderboard</option><option>department_trend</option></select></label>
+            <div class="form-grid" style="margin-top:12px">
+              <label>Employee Code<input id="exEmp" placeholder="EMP0001"></label>
+              <label>Month<input id="exMonth" type="month"></label>
+              <label>Department<input id="exDept"></label>
+              <label>Limit<input id="exLimit" type="number" min="1" max="50" value="10"></label>
+              <label>Date From<input id="exDateFrom" type="date"></label>
+              <label>Date To<input id="exDateTo" type="date"></label>
+              <label>Status<select id="exStatus"><option value="">Any</option><option>PRESENT</option><option>WFH</option><option>ON_DUTY</option><option>ABSENT</option><option>LEAVE</option></select></label>
+              <label>Trend From<input id="exFrom" type="date"></label>
+              <label>Trend To<input id="exTo" type="date"></label>
+            </div>
+            <div class="actions"><button id="loadExplain">Run Explain</button></div>
+          </div>
+        </div>
+        <div class="panel span-8">
+          <div class="panel-head"><h2>Explain Output</h2></div>
+          <div class="panel-body"><pre id="explainOutput">{}</pre></div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <div id="toast" class="toast"></div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const state = { attendancePage: 1 };
+
+    function todayMonth() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    }
+    function todayDate() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    }
+    function localInputValue(d = new Date()) {
+      const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+      return z.toISOString().slice(0, 16);
+    }
+    function toEpoch(id) {
+      const v = $(id).value;
+      return v ? new Date(v).getTime() : undefined;
+    }
+    function fromEpoch(ms) {
+      if (ms === null || ms === undefined) return "";
+      return new Date(ms).toLocaleString();
+    }
+    function month(id) {
+      return $(id).value || todayMonth();
+    }
+    function show(obj, target) {
+      $(target).textContent = JSON.stringify(obj, null, 2);
+    }
+    function toast(msg) {
+      const el = $("toast");
+      el.textContent = msg;
+      el.classList.add("show");
+      setTimeout(() => el.classList.remove("show"), 3200);
+    }
+    async function api(path, options = {}) {
+      const res = await fetch(path, {
+        headers: options.body ? {"Content-Type": "application/json"} : undefined,
+        ...options,
+      });
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : null;
+      if (!res.ok) {
+        const detail = data && data.detail ? JSON.stringify(data.detail) : res.statusText;
+        throw new Error(`${res.status} ${detail}`);
+      }
+      return data;
+    }
+    function params(obj) {
+      const p = new URLSearchParams();
+      Object.entries(obj).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") p.set(k, v);
+      });
+      const s = p.toString();
+      return s ? `?${s}` : "";
+    }
+    function badge(status) {
+      const cls = status === "ABSENT" ? "absent" : status === "LEAVE" ? "leave" : "";
+      return `<span class="badge ${cls}">${status}</span>`;
+    }
+    function esc(v) {
+      return String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    }
+
+    document.querySelectorAll(".tab").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+        btn.classList.add("active");
+        $(btn.dataset.tab).classList.add("active");
+      });
+    });
+    document.querySelectorAll("[data-now]").forEach(btn => {
+      btn.addEventListener("click", () => { $(btn.dataset.now).value = localInputValue(); });
+    });
+
+    async function checkHealth() {
+      try {
+        await api("/health");
+        $("healthDot").classList.add("ok");
+        $("healthText").textContent = "MongoDB connected";
+      } catch (e) {
+        $("healthDot").classList.remove("ok");
+        $("healthText").textContent = "MongoDB unavailable";
+      }
+    }
+    async function loadEmployees() {
+      try {
+        const data = await api("/employees" + params({department: $("empFilterDept").value, page_size: 100}));
+        $("employeeRows").innerHTML = data.items.map(e => `<tr><td>${esc(e.emp_code)}</td><td>${esc(e.name)}</td><td>${esc(e.email)}</td><td>${esc(e.department)}</td><td>${esc(e.shift_start)}-${esc(e.shift_end)}</td><td>${esc(e.joined_on)}</td></tr>`).join("");
+        $("mEmployees").textContent = data.total;
+      } catch (e) { toast(e.message); }
+    }
+    async function createEmployee() {
+      try {
+        const body = {
+          emp_code: $("empCode").value, name: $("empName").value, email: $("empEmail").value,
+          department: $("empDept").value, shift_start: $("empStart").value || "09:30",
+          shift_end: $("empEnd").value || "18:30", joined_on: $("empJoined").value
+        };
+        const data = await api("/employees", {method: "POST", body: JSON.stringify(body)});
+        toast(`Created ${data.emp_code}`);
+        loadEmployees();
+      } catch (e) { toast(e.message); }
+    }
+    async function punchIn() {
+      try {
+        const body = {emp_code: $("pinCode").value, status: $("pinStatus").value};
+        const at = toEpoch("pinAt");
+        if (at) body.punched_at = at;
+        const data = await api("/attendance/punch-in", {method: "POST", body: JSON.stringify(body)});
+        show(data, "punchResult");
+        toast("Punch-in saved");
+        loadDashboard();
+      } catch (e) { toast(e.message); }
+    }
+    async function punchOut() {
+      try {
+        const body = {emp_code: $("poutCode").value};
+        const at = toEpoch("poutAt");
+        if (at) body.punched_at = at;
+        const data = await api("/attendance/punch-out", {method: "POST", body: JSON.stringify(body)});
+        show(data, "punchResult");
+        toast("Punch-out saved");
+        loadDashboard();
+      } catch (e) { toast(e.message); }
+    }
+    async function loadAttendance() {
+      try {
+        state.attendancePage = Number($("attPage").value || 1);
+        const data = await api("/attendance" + params({
+          emp_code: $("attCode").value, status: $("attStatus").value,
+          date_from: $("attFrom").value, date_to: $("attTo").value,
+          page: state.attendancePage, page_size: $("attPageSize").value || 20
+        }));
+        $("mAttendance").textContent = data.total;
+        $("attendanceRows").innerHTML = data.items.map(r => `<tr>
+          <td>${esc(r.date)}</td><td>${esc(r.emp_code)}</td><td>${badge(r.status)}</td>
+          <td>${esc(fromEpoch(r.punch_in))}</td><td>${esc(fromEpoch(r.punch_out))}</td>
+          <td>${r.work_hours ?? ""}</td><td>${r.late_minutes}</td><td>${r.overtime_minutes}</td><td>${r.half_day ? "Yes" : "No"}</td><td>${r.history.length}</td>
+          <td><button class="secondary" data-reg="${esc(r.emp_code)}|${esc(r.date)}">Edit</button></td>
+        </tr>`).join("");
+        document.querySelectorAll("[data-reg]").forEach(b => b.addEventListener("click", () => {
+          const [code, date] = b.dataset.reg.split("|");
+          $("regCode").value = code; $("regDate").value = date;
+          document.querySelector('[data-tab="regularize"]').click();
+        }));
+      } catch (e) { toast(e.message); }
+    }
+    async function loadDashboard() {
+      try {
+        const recent = await api("/attendance?page_size=12");
+        $("recentRows").innerHTML = recent.items.map(r => `<tr><td>${esc(r.date)}</td><td>${esc(r.emp_code)}</td><td>${badge(r.status)}</td><td>${esc(fromEpoch(r.punch_in))}</td><td>${esc(fromEpoch(r.punch_out))}</td><td>${r.late_minutes}</td><td>${r.work_hours ?? ""}</td></tr>`).join("");
+        $("mAttendance").textContent = recent.total;
+        $("mOpen").textContent = recent.items.filter(r => r.punch_in && !r.punch_out).length;
+        $("mLate").textContent = recent.items.filter(r => r.late_minutes > 0).length;
+        loadEmployees();
+      } catch (e) { toast(e.message); }
+    }
+    async function regularize() {
+      try {
+        const body = {reason: $("regReason").value, regularized_by: $("regBy").value};
+        if ($("regStatus").value) body.status = $("regStatus").value;
+        const pin = toEpoch("regIn"), pout = toEpoch("regOut");
+        if (pin) body.punch_in = pin;
+        if (pout) body.punch_out = pout;
+        const data = await api(`/attendance/${encodeURIComponent($("regCode").value)}/${$("regDate").value}`, {method: "PATCH", body: JSON.stringify(body)});
+        show(data, "regResult");
+        toast("Correction applied");
+        loadAttendance();
+      } catch (e) { toast(e.message); }
+    }
+    async function loadRegRecord() {
+      try {
+        const data = await api("/attendance" + params({emp_code: $("regCode").value, date_from: $("regDate").value, date_to: $("regDate").value}));
+        show(data.items[0] || {}, "regResult");
+      } catch (e) { toast(e.message); }
+    }
+    async function loadMonthly() {
+      try { show(await api(`/analytics/employees/${encodeURIComponent($("amCode").value)}/monthly` + params({month: month("amMonth")})), "analyticsOutput"); }
+      catch (e) { toast(e.message); }
+    }
+    async function loadSummary(target = "analyticsOutput") {
+      try { show(await api("/analytics/departments/summary" + params({month: month(target === "dashOutput" ? "dashMonth" : "sumMonth"), department: target === "dashOutput" ? $("dashDepartment").value : $("sumDept").value})), target); }
+      catch (e) { toast(e.message); }
+    }
+    async function loadLeaderboard() {
+      try { show(await api("/analytics/leaderboard/late" + params({month: month("leadMonth"), limit: $("leadLimit").value, department: $("leadDept").value})), "analyticsOutput"); }
+      catch (e) { toast(e.message); }
+    }
+    function drawTrend(items) {
+      const canvas = $("trendCanvas"), ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "#d9e0e7"; ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = 20 + i * 60;
+        ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(canvas.width - 20, y); ctx.stroke();
+      }
+      const rates = items.map(x => x.attendance_rate).filter(x => x !== null);
+      if (!rates.length) return;
+      const max = Math.max(1, ...rates);
+      const step = (canvas.width - 70) / Math.max(1, items.length - 1);
+      ctx.strokeStyle = "#0f766e"; ctx.lineWidth = 3; ctx.beginPath();
+      items.forEach((it, i) => {
+        if (it.attendance_rate === null) return;
+        const x = 40 + i * step;
+        const y = 260 - (it.attendance_rate / max) * 220;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.fillStyle = "#17212b"; ctx.font = "12px system-ui";
+      ctx.fillText("attendance_rate", 44, 24);
+    }
+    async function loadTrend() {
+      try {
+        const data = await api(`/analytics/departments/${encodeURIComponent($("trendDept").value)}/trend` + params({from: $("trendFrom").value, to: $("trendTo").value}));
+        show(data, "analyticsOutput");
+        drawTrend(data.items);
+      } catch (e) { toast(e.message); }
+    }
+    async function loadExplain() {
+      try {
+        const data = await api(`/admin/explain/${$("exEndpoint").value}` + params({
+          emp_code: $("exEmp").value, month: $("exMonth").value, department: $("exDept").value,
+          limit: $("exLimit").value, date_from: $("exDateFrom").value, date_to: $("exDateTo").value,
+          status: $("exStatus").value, from: $("exFrom").value, to: $("exTo").value
+        }));
+        show(data, "explainOutput");
+      } catch (e) { toast(e.message); }
+    }
+
+    $("createEmployee").addEventListener("click", createEmployee);
+    $("clearEmployee").addEventListener("click", () => ["empCode","empName","empEmail","empDept","empJoined"].forEach(id => $(id).value = ""));
+    $("loadEmployees").addEventListener("click", loadEmployees);
+    $("punchIn").addEventListener("click", punchIn);
+    $("punchOut").addEventListener("click", punchOut);
+    $("loadAttendance").addEventListener("click", loadAttendance);
+    $("nextAttendance").addEventListener("click", () => { $("attPage").value = Number($("attPage").value || 1) + 1; loadAttendance(); });
+    $("regularizeBtn").addEventListener("click", regularize);
+    $("loadRegRecord").addEventListener("click", loadRegRecord);
+    $("loadMonthly").addEventListener("click", loadMonthly);
+    $("loadSummary").addEventListener("click", () => loadSummary("analyticsOutput"));
+    $("loadDashSummary").addEventListener("click", () => loadSummary("dashOutput"));
+    $("loadLeaderboard").addEventListener("click", loadLeaderboard);
+    $("loadTrend").addEventListener("click", loadTrend);
+    $("loadExplain").addEventListener("click", loadExplain);
+    $("refreshDashboard").addEventListener("click", loadDashboard);
+
+    ["dashMonth","amMonth","sumMonth","leadMonth","exMonth"].forEach(id => $(id).value = todayMonth());
+    ["trendFrom","trendTo"].forEach(id => $(id).value = todayDate());
+    $("empJoined").value = todayDate();
+    checkHealth();
+    loadDashboard();
+    setInterval(checkHealth, 15000);
+  </script>
+</body>
+</html>"""
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def root():
+    return FRONTEND_HTML
 
 
 @app.get("/health")

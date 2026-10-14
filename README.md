@@ -12,6 +12,27 @@ uvicorn app.main:app --port 8000
 ```
 MongoDB 6.0+ is required (`$setWindowFields`, `$dateAdd`). A local `.env` with the same two variables also works; real environment variables win. Indexes are created at startup. Interactive docs: http://localhost:8000/docs
 
+## Frontend
+Open http://localhost:8000/ for the built-in attendance console. It is served by the same FastAPI app and uses the API
+endpoints directly for employees, punch-in/out, attendance listing, regularization, analytics, explain plans and health.
+
+## MongoDB URI
+Local MongoDB:
+```powershell
+$env:MONGO_URI="mongodb://localhost:27017"
+$env:MONGO_DB="attendance_db"
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
+```
+
+MongoDB Atlas:
+```powershell
+$env:MONGO_URI="mongodb+srv://USERNAME:PASSWORD@cluster0.example.mongodb.net/?retryWrites=true&w=majority"
+$env:MONGO_DB="attendance_db"
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
+```
+
+You can also copy `.env.example` to `.env` and edit it locally. Do not commit `.env`.
+
 ## Status
 All endpoints in `openapi.yaml` are implemented, including the explain endpoint. Nothing is intentionally missing.
 
